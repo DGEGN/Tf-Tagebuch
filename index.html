@@ -62,10 +62,46 @@ textarea{min-height:70px;resize:vertical}
 .toast.on{opacity:1}
 .editbar{display:none;background:#2b2210;border:1px solid #5a4719;color:#ffd27a;border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:14px;justify-content:space-between;align-items:center}
 .editbar.on{display:flex}
+
+#auth{display:none;max-width:420px;margin:0 auto;padding:24px 16px}
+#auth.on{display:block}
+#app{display:none}#app.on{display:block}
+.auth-title{font-size:26px;font-weight:700;text-align:center;margin:30px 0 4px}
+.auth-title span{color:var(--acc2)}
+.auth-sub{text-align:center;color:var(--mut);margin-bottom:20px}
+.link{background:none;border:0;color:var(--acc2);font-size:14px;padding:8px;display:block;margin:6px auto 0}
+.err{color:#ff8a95;font-size:14px;margin-top:10px;min-height:18px;text-align:center}
+header{display:flex;justify-content:space-between;align-items:center}
+.who{font-size:12px;color:var(--mut);text-align:right}
+.sync{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:5px}
+.sync.off{background:#e0a030}
+.cfg{background:#2b2210;border:1px solid #5a4719;color:#ffd27a;border-radius:10px;padding:12px;font-size:14px}
 </style>
 </head>
 <body>
-<header><h1>Tf-<span>Tagebuch</span></h1></header>
+<!-- LOGIN / REGISTRIERUNG -->
+<div id="auth">
+  <div class="auth-title">Tf-<span>Tagebuch</span></div>
+  <div class="auth-sub" id="a-sub">Anmelden</div>
+  <div id="a-cfg" class="cfg" style="display:none">⚠️ Firebase ist noch nicht eingerichtet. Trag oben im Skript deine <b>firebaseConfig</b> ein.</div>
+  <div class="card">
+    <div id="a-namebox" style="display:none"><label style="margin-top:0">Name</label><input id="a-name" autocomplete="name" placeholder="Vorname Nachname"></div>
+    <label>E-Mail</label><input id="a-mail" type="email" autocomplete="email" placeholder="name@beispiel.de">
+    <div id="a-pwbox"><label>Passwort</label><input id="a-pw" type="password" autocomplete="current-password" placeholder="mind. 6 Zeichen"></div>
+    <div id="a-pw2box" style="display:none"><label>Passwort wiederholen</label><input id="a-pw2" type="password" autocomplete="new-password"></div>
+    <button class="btn" id="a-btn">Anmelden</button>
+    <div class="err" id="a-err"></div>
+  </div>
+  <button class="link" id="a-toggle">Noch kein Konto? Jetzt registrieren</button>
+  <button class="link" id="a-forgot">Passwort vergessen?</button>
+</div>
+
+<div id="app">
+<header>
+  <h1>Tf-<span>Tagebuch</span></h1>
+  <div class="who"><div><span class="sync" id="sync"></span><span id="who"></span></div>
+  <button class="link" style="margin:0;padding:2px 0 0;font-size:12px;margin-left:auto" onclick="logout()">Abmelden</button></div>
+</header>
 
 <main>
 <!-- ERFASSEN -->
@@ -168,10 +204,17 @@ textarea{min-height:70px;resize:vertical}
     <button class="btn sec" onclick="addBR()">Baureihe hinzufügen</button>
     <div class="hint" id="d-brlist"></div>
   </div>
+  <div class="card" id="d-migrate" style="display:none">
+    <h2>Alte Daten übernehmen</h2>
+    <p class="hint" style="margin-top:0">Auf diesem Gerät liegen noch Einträge aus der Version ohne Anmeldung.</p>
+    <button class="btn" onclick="migrateLocal()">In mein Konto hochladen</button>
+  </div>
   <div class="card">
-    <h2>Info</h2>
+    <h2>Konto</h2>
     <div class="hint" id="d-info"></div>
-    <button class="btn danger" onclick="wipe()">Alle Daten löschen</button>
+    <button class="btn sec" onclick="resetPw()">Passwort ändern (Mail senden)</button>
+    <button class="btn sec" onclick="logout()">Abmelden</button>
+    <button class="btn danger" onclick="wipe()">Alle Einträge löschen</button>
   </div>
 </section>
 </main>
@@ -185,25 +228,47 @@ textarea{min-height:70px;resize:vertical}
   <button data-v="v-stats"><span class="i">📊</span>Statistik</button>
   <button data-v="v-data"><span class="i">💾</span>Daten</button>
 </nav>
+</div><!-- /app -->
 <div class="toast" id="toast"></div>
 
-<script>
-const KEY='tf-tagebuch-v1';
+<script type="module">
+/* =========================================================
+   1) HIER DEINE FIREBASE-KONFIGURATION EINTRAGEN
+   Firebase-Konsole → Projekteinstellungen → Allgemein →
+   „Meine Apps“ → Web-App → SDK-Konfiguration
+   ========================================================= */
+const firebaseConfig = {
+  apiKey: "DEIN_API_KEY",
+  authDomain: "DEIN_PROJEKT.firebaseapp.com",
+  projectId: "DEIN_PROJEKT",
+  storageBucket: "DEIN_PROJEKT.appspot.com",
+  messagingSenderId: "000000000000",
+  appId: "1:000000000000:web:xxxxxxxxxxxxxxxx"
+};
+/* ========================================================= */
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {
+  getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+  signOut, sendPasswordResetEmail, updateProfile, setPersistence, browserLocalPersistence
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {
+  initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+  collection, doc, setDoc, deleteDoc, onSnapshot, writeBatch, getDocs
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const $ = id => document.getElementById(id);
+const configured = !firebaseConfig.apiKey.startsWith("DEIN_");
+
 const TASKS=['Bereitstellen','Abstellen','Übernahme','Übergabe','Zugfahrt','Rangierfahrt','Vorbereitungsdienst','Abschlussdienst','Bremsprobe','Kuppeln','Entkuppeln','Wenden','Gastfahrt','Wartezeit','Pause'];
 const BR_DEFAULT=['401','402','403','406','407','408','411','412','415','IC2 (4110)','IC2 (4010/146)','101','147','Sonstige'];
+const LOCAL_KEY='tf-tagebuch-v1';
 
-let db=load();
-let editId=null;
-let selTasks=new Set();
+let fa, fs, user=null, unsubE=null, unsubU=null;
+let db={entries:[],customBR:[]};
+let editId=null, selTasks=new Set();
 
-function load(){
-  try{const d=JSON.parse(localStorage.getItem(KEY));if(d&&Array.isArray(d.entries))return Object.assign({customBR:[]},d);}catch(e){}
-  return {entries:[],customBR:[]};
-}
-function persist(){
-  try{localStorage.setItem(KEY,JSON.stringify(db));}catch(e){alert('Speichern fehlgeschlagen: '+e.message);}
-}
-const $=id=>document.getElementById(id);
+/* ---------- Helfer ---------- */
 const pad=n=>String(n).padStart(2,'0');
 const today=()=>{const d=new Date();return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());};
 const nowT=()=>{const d=new Date();return pad(d.getHours())+':'+pad(d.getMinutes());};
@@ -212,6 +277,88 @@ function toast(t){const e=$('toast');e.textContent=t;e.classList.add('on');setTi
 function mins(a,b){if(!a||!b)return 0;const[ah,am]=a.split(':').map(Number),[bh,bm]=b.split(':').map(Number);let m=(bh*60+bm)-(ah*60+am);if(m<0)m+=1440;return m;}
 const fmtH=m=>Math.floor(m/60)+':'+pad(m%60)+' h';
 const allBR=()=>[...BR_DEFAULT.slice(0,-1),...db.customBR,'Sonstige'];
+const newId=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const entriesCol=()=>collection(fs,'users',user.uid,'entries');
+const userDoc=()=>doc(fs,'users',user.uid);
+function fail(e){console.error(e);alert('Fehler: '+(e.message||e));}
+
+/* ---------- Anmeldung ---------- */
+let mode='login'; // login | register | reset
+const ERR={
+  'auth/invalid-email':'Ungültige E-Mail-Adresse.',
+  'auth/invalid-credential':'E-Mail oder Passwort falsch.',
+  'auth/wrong-password':'E-Mail oder Passwort falsch.',
+  'auth/user-not-found':'Kein Konto mit dieser E-Mail.',
+  'auth/email-already-in-use':'Für diese E-Mail gibt es schon ein Konto.',
+  'auth/weak-password':'Passwort zu schwach (mind. 6 Zeichen).',
+  'auth/too-many-requests':'Zu viele Versuche – bitte kurz warten.',
+  'auth/network-request-failed':'Keine Internetverbindung.'
+};
+function setMode(m){
+  mode=m;$('a-err').textContent='';
+  $('a-namebox').style.display=m==='register'?'block':'none';
+  $('a-pw2box').style.display=m==='register'?'block':'none';
+  $('a-pwbox').style.display=m==='reset'?'none':'block';
+  $('a-sub').textContent={login:'Anmelden',register:'Neues Konto erstellen',reset:'Passwort zurücksetzen'}[m];
+  $('a-btn').textContent={login:'Anmelden',register:'Registrieren',reset:'Link senden'}[m];
+  $('a-toggle').textContent=m==='login'?'Noch kein Konto? Jetzt registrieren':'Zurück zur Anmeldung';
+  $('a-forgot').style.display=m==='login'?'block':'none';
+  $('a-pw').autocomplete=m==='register'?'new-password':'current-password';
+}
+$('a-toggle').onclick=()=>setMode(mode==='login'?'register':'login');
+$('a-forgot').onclick=()=>setMode('reset');
+$('a-btn').onclick=async()=>{
+  if(!configured){$('a-err').textContent='Firebase-Konfiguration fehlt.';return;}
+  const mail=$('a-mail').value.trim(),pw=$('a-pw').value;
+  $('a-err').textContent='';$('a-btn').disabled=true;
+  try{
+    if(mode==='login') await signInWithEmailAndPassword(fa,mail,pw);
+    else if(mode==='register'){
+      if(pw!==$('a-pw2').value) throw {code:'x',message:'Die Passwörter stimmen nicht überein.'};
+      const name=$('a-name').value.trim();
+      const cred=await createUserWithEmailAndPassword(fa,mail,pw);
+      if(name) await updateProfile(cred.user,{displayName:name});
+      await setDoc(doc(fs,'users',cred.user.uid),{name,email:mail,created:Date.now(),customBR:[]},{merge:true});
+      $('who').textContent=name||mail;
+    } else {
+      await sendPasswordResetEmail(fa,mail);
+      $('a-err').style.color='var(--ok)';$('a-err').textContent='Mail verschickt – schau in dein Postfach.';
+      setTimeout(()=>{$('a-err').style.color='';},4000);
+    }
+  }catch(e){$('a-err').textContent=ERR[e.code]||e.message;}
+  $('a-btn').disabled=false;
+};
+['a-mail','a-pw','a-pw2'].forEach(i=>$(i).addEventListener('keydown',e=>{if(e.key==='Enter')$('a-btn').click();}));
+
+window.logout=async()=>{if(confirm('Abmelden?'))await signOut(fa);};
+window.resetPw=async()=>{
+  try{await sendPasswordResetEmail(fa,user.email);toast('Mail verschickt');}catch(e){fail(e);}
+};
+
+function showAuth(){ $('auth').classList.add('on'); $('app').classList.remove('on'); }
+function showApp(){ $('auth').classList.remove('on'); $('app').classList.add('on'); }
+
+/* ---------- Daten live aus Firestore ---------- */
+function startSync(){
+  unsubE=onSnapshot(entriesCol(),{includeMetadataChanges:true},snap=>{
+    db.entries=snap.docs.map(d=>({id:d.id,...d.data()}));
+    $('sync').classList.toggle('off',snap.metadata.hasPendingWrites||snap.metadata.fromCache);
+    refresh();
+  },fail);
+  unsubU=onSnapshot(userDoc(),snap=>{
+    const d=snap.data()||{};
+    db.customBR=d.customBR||[];
+    renderBR($('f-br').value);
+    if($('v-data').classList.contains('on'))renderData();
+  },fail);
+}
+function stopSync(){ unsubE&&unsubE(); unsubU&&unsubU(); unsubE=unsubU=null; db={entries:[],customBR:[]}; }
+function refresh(){
+  renderDatalists();
+  if($('v-list').classList.contains('on'))renderList();
+  if($('v-stats').classList.contains('on'))renderStats();
+  if($('v-data').classList.contains('on'))renderData();
+}
 
 /* ---------- Navigation ---------- */
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>show(b.dataset.v));
@@ -238,56 +385,56 @@ function renderDatalists(){
   $('dl-tz').innerHTML=[...tz].sort().map(x=>`<option value="${esc(x)}">`).join('');
   $('dl-loc').innerHTML=[...loc].sort().map(x=>`<option value="${esc(x)}">`).join('');
 }
-function resetForm(keep){
+window.resetForm=function(keep){
   editId=null;$('editbar').classList.remove('on');$('saveBtn').textContent='Eintrag speichern';
   if(!keep){
     $('f-date').value=today();$('f-from').value=nowT();$('f-to').value='';
     ['f-tz','f-tz2','f-locA','f-locB'].forEach(i=>$(i).value='');renderBR('');
   }
   ['f-taskx','f-in','f-out','f-run','f-track','f-note'].forEach(i=>$(i).value='');
-  selTasks=new Set();renderTaskChips();renderDatalists();
-}
-function saveEntry(next){
+  selTasks=new Set();renderTaskChips();
+};
+window.saveEntry=function(next){
   const tasks=[...selTasks];const x=$('f-taskx').value.trim();if(x)tasks.push(x);
   if(!$('f-date').value){alert('Bitte Datum angeben.');return;}
   if(!tasks.length){alert('Bitte mindestens eine Teilarbeit auswählen.');return;}
+  const wasEdit=!!editId;
+  const id=editId||newId();
   const e={
-    id:editId||Date.now().toString(36)+Math.random().toString(36).slice(2,6),
     date:$('f-date').value,from:$('f-from').value,to:$('f-to').value,
     tasks,br:$('f-br').value,tz:$('f-tz').value.trim(),tz2:$('f-tz2').value.trim(),
     trainIn:$('f-in').value.trim(),trainOut:$('f-out').value.trim(),trainRun:$('f-run').value.trim(),
     locA:$('f-locA').value.trim(),locB:$('f-locB').value.trim(),track:$('f-track').value.trim(),
     note:$('f-note').value.trim(),updated:Date.now()
   };
-  if(editId){const i=db.entries.findIndex(z=>z.id===editId);if(i>=0)db.entries[i]=e;}
-  else db.entries.push(e);
-  persist();
-  toast(editId?'Geändert ✓':'Gespeichert ✓');
+  // Kein await: Firestore speichert sofort lokal und synchronisiert, sobald Netz da ist
+  setDoc(doc(entriesCol(),id),e).catch(fail);
+  toast(wasEdit?'Geändert ✓':'Gespeichert ✓');
   if(next){
-    const to=e.to;resetForm(true);
-    $('f-from').value=to||nowT();$('f-to').value='';
+    resetForm(true);
+    $('f-from').value=e.to||nowT();$('f-to').value='';
     $('f-locA').value=e.locB||e.locA;$('f-locB').value='';
   }else{
-    const wasEdit=!!editId;resetForm();if(wasEdit)show('v-list');
+    resetForm();if(wasEdit)show('v-list');
   }
-}
-function editEntry(id){
+};
+window.editEntry=function(id){
   const e=db.entries.find(z=>z.id===id);if(!e)return;
   show('v-add');editId=id;
   $('editbar').classList.add('on');$('saveBtn').textContent='Änderungen speichern';
   $('f-date').value=e.date;$('f-from').value=e.from||'';$('f-to').value=e.to||'';
-  selTasks=new Set(e.tasks.filter(t=>TASKS.includes(t)));renderTaskChips();
-  $('f-taskx').value=e.tasks.filter(t=>!TASKS.includes(t)).join(', ');
-  if(e.br&&!allBR().includes(e.br)){db.customBR.push(e.br);persist();}
+  selTasks=new Set((e.tasks||[]).filter(t=>TASKS.includes(t)));renderTaskChips();
+  $('f-taskx').value=(e.tasks||[]).filter(t=>!TASKS.includes(t)).join(', ');
   renderBR(e.br);
+  if(e.br&&!allBR().includes(e.br)) $('f-br').insertAdjacentHTML('beforeend',`<option selected>${esc(e.br)}</option>`);
   $('f-tz').value=e.tz||'';$('f-tz2').value=e.tz2||'';
   $('f-in').value=e.trainIn||'';$('f-out').value=e.trainOut||'';$('f-run').value=e.trainRun||'';
   $('f-locA').value=e.locA||'';$('f-locB').value=e.locB||'';$('f-track').value=e.track||'';$('f-note').value=e.note||'';
-}
-function delEntry(id){
+};
+window.delEntry=function(id){
   if(!confirm('Eintrag wirklich löschen?'))return;
-  db.entries=db.entries.filter(z=>z.id!==id);persist();renderList();toast('Gelöscht');
-}
+  deleteDoc(doc(entriesCol(),id)).catch(fail);toast('Gelöscht');
+};
 
 /* ---------- Tagebuch ---------- */
 function entryHTML(e){
@@ -298,7 +445,7 @@ function entryHTML(e){
   if(e.trainOut)zug.push(`für <b>${esc(e.trainOut)}</b>`);
   const loc=[e.locA,e.locB].filter(Boolean).map(esc).join(' → ');
   return `<div class="entry">
-    <div class="top"><span>${e.tasks.map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</span>
+    <div class="top"><span>${(e.tasks||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join('')}</span>
     <span class="time">${esc(e.from||'')}${e.to?'–'+esc(e.to):''}</span></div>
     <div class="meta">${e.br?'<b>BR '+esc(e.br)+'</b> ':''}${tz}</div>
     ${zug.length?`<div class="meta">Zug: ${zug.join(' · ')}</div>`:''}
@@ -343,20 +490,17 @@ function renderStats(){
   const E=db.entries.filter(e=>e.date.startsWith(sel));
   const days=new Set(E.map(e=>e.date)).size;
   const totalM=E.reduce((s,e)=>s+mins(e.from,e.to),0);
-  const byTask={},byBR={},byTz={},byMonth={};
+  const byTask={},byBR={},byTz={};
   E.forEach(e=>{
-    e.tasks.forEach(t=>byTask[t]=(byTask[t]||0)+1);
+    (e.tasks||[]).forEach(t=>byTask[t]=(byTask[t]||0)+1);
     if(e.br)byBR['BR '+e.br]=(byBR['BR '+e.br]||0)+1;
     [e.tz,e.tz2].filter(Boolean).forEach(t=>byTz['Tz '+t]=(byTz['Tz '+t]||0)+1);
-    const mo=new Date(e.date+'T12:00').toLocaleDateString('de-DE',{month:'long'});
-    byMonth[mo]=(byMonth[mo]||0)+1;
   });
-  const uniqTz=Object.keys(byTz).length;
   $('stats').innerHTML=`
     <div class="card"><div class="kpis">
       <div class="kpi"><div class="v">${days}</div><div class="l">Diensttage</div></div>
       <div class="kpi"><div class="v">${E.length}</div><div class="l">Teilarbeiten</div></div>
-      <div class="kpi"><div class="v">${uniqTz}</div><div class="l">versch. Tz</div></div>
+      <div class="kpi"><div class="v">${Object.keys(byTz).length}</div><div class="l">versch. Tz</div></div>
     </div><div class="hint" style="text-align:center;margin-top:10px">Erfasste Zeit: <b>${fmtH(totalM)}</b></div></div>
     <div class="card"><h2>Teilarbeiten</h2>${bars(byTask,20)}</div>
     <div class="card"><h2>Baureihen</h2>${bars(byBR)}</div>
@@ -369,52 +513,94 @@ function download(name,text,type){
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;
   document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},500);
 }
-function exportJSON(){download(`tf-tagebuch-${today()}.json`,JSON.stringify(db,null,1),'application/json');}
-function importJSON(inp){
+async function uploadEntries(list){
+  // Firestore erlaubt max. 500 Schreibvorgänge pro Batch
+  const have=new Map(db.entries.map(e=>[e.id,e]));
+  const todo=list.filter(e=>e&&e.id&&e.date&&(!have.has(e.id)||(e.updated||0)>(have.get(e.id).updated||0)));
+  for(let i=0;i<todo.length;i+=450){
+    const b=writeBatch(fs);
+    todo.slice(i,i+450).forEach(({id,...rest})=>b.set(doc(entriesCol(),id),rest));
+    await b.commit();
+  }
+  return todo.length;
+}
+window.exportJSON=()=>download(`tf-tagebuch-${today()}.json`,JSON.stringify(db,null,1),'application/json');
+window.importJSON=function(inp){
   const f=inp.files[0];if(!f)return;
   const r=new FileReader();
-  r.onload=()=>{
+  r.onload=async()=>{
     try{
       const d=JSON.parse(r.result);if(!Array.isArray(d.entries))throw new Error('Keine gültige Sicherung');
-      const map=new Map(db.entries.map(e=>[e.id,e]));let n=0;
-      d.entries.forEach(e=>{const o=map.get(e.id);if(!o||(e.updated||0)>(o.updated||0)){map.set(e.id,e);n++;}});
-      db.entries=[...map.values()];
-      db.customBR=[...new Set([...(db.customBR||[]),...(d.customBR||[])])];
-      persist();renderData();renderDatalists();renderBR($('f-br').value);toast(n+' Einträge übernommen');
-    }catch(e){alert('Fehler beim Laden: '+e.message);}
+      const n=await uploadEntries(d.entries);
+      if(d.customBR?.length) await setDoc(userDoc(),{customBR:[...new Set([...db.customBR,...d.customBR])]},{merge:true});
+      toast(n+' Einträge übernommen');
+    }catch(e){fail(e);}
     inp.value='';
   };
   r.readAsText(f);
-}
-function exportCSV(){
+};
+window.exportCSV=function(){
   const cols=['date','from','to','tasks','br','tz','tz2','trainIn','trainRun','trainOut','locA','locB','track','note'];
   const head=['Datum','Von','Bis','Teilarbeit','Baureihe','Tz','Tz 2','Aus Zug','Als Zug','Für Zug','Von Ort','Nach Ort','Gleis','Notiz'];
   const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
   const rows=db.entries.slice().sort((a,b)=>a.date.localeCompare(b.date)||(a.from||'').localeCompare(b.from||''))
-    .map(e=>cols.map(c=>q(c==='tasks'?e.tasks.join(', '):e[c])).join(';'));
+    .map(e=>cols.map(c=>q(c==='tasks'?(e.tasks||[]).join(', '):e[c])).join(';'));
   download(`tf-tagebuch-${today()}.csv`,'﻿'+[head.map(q).join(';'),...rows].join('\r\n'),'text/csv');
-}
-function addBR(){
+};
+window.addBR=function(){
   const v=$('d-br').value.trim();if(!v)return;
-  if(!allBR().includes(v)){db.customBR.push(v);persist();}
-  $('d-br').value='';renderData();renderBR($('f-br').value);toast('Hinzugefügt');
-}
-function delBR(b){db.customBR=db.customBR.filter(x=>x!==b);persist();renderData();renderBR($('f-br').value);}
+  if(!allBR().includes(v)) setDoc(userDoc(),{customBR:[...db.customBR,v]},{merge:true}).catch(fail);
+  $('d-br').value='';toast('Hinzugefügt');
+};
+window.delBR=function(b){ setDoc(userDoc(),{customBR:db.customBR.filter(x=>x!==b)},{merge:true}).catch(fail); };
+function localOld(){ try{const d=JSON.parse(localStorage.getItem(LOCAL_KEY));return d&&Array.isArray(d.entries)&&d.entries.length?d:null;}catch(e){return null;} }
 function renderData(){
-  $('d-brlist').innerHTML=db.customBR.length?'Eigene: '+db.customBR.map(b=>`<span class="tag">${esc(b)} <a onclick="delBR('${esc(b)}')" style="color:#ff8a95">✕</a></span>`).join(''):'';
-  const size=(new Blob([localStorage.getItem(KEY)||'']).size/1024).toFixed(1);
-  $('d-info').innerHTML=`${db.entries.length} Einträge gespeichert (${size} KB).`;
+  $('d-brlist').innerHTML=db.customBR.length?'Eigene: '+db.customBR.map(b=>`<span class="tag">${esc(b)} <a data-br="${esc(b)}" style="color:#ff8a95">✕</a></span>`).join(''):'';
+  $('d-brlist').querySelectorAll('a[data-br]').forEach(a=>a.onclick=()=>delBR(a.dataset.br));
+  $('d-info').innerHTML=`Angemeldet als <b>${esc(user?.email)}</b><br>${db.entries.length} Einträge in der Cloud.`;
+  $('d-migrate').style.display=localOld()?'block':'none';
 }
-function wipe(){
+window.migrateLocal=async function(){
+  const d=localOld();if(!d)return;
+  try{
+    const n=await uploadEntries(d.entries);
+    if(d.customBR?.length) await setDoc(userDoc(),{customBR:[...new Set([...db.customBR,...d.customBR])]},{merge:true});
+    localStorage.removeItem(LOCAL_KEY);toast(n+' Einträge hochgeladen');renderData();
+  }catch(e){fail(e);}
+};
+window.wipe=async function(){
   if(!confirm('Wirklich ALLE Einträge löschen? Vorher eine Sicherung machen!'))return;
   if(!confirm('Letzte Warnung – das lässt sich nicht rückgängig machen.'))return;
-  db={entries:[],customBR:[]};persist();renderData();toast('Alles gelöscht');
-}
+  try{
+    const snap=await getDocs(entriesCol());
+    for(let i=0;i<snap.docs.length;i+=450){
+      const b=writeBatch(fs);snap.docs.slice(i,i+450).forEach(d=>b.delete(d.ref));await b.commit();
+    }
+    toast('Alles gelöscht');
+  }catch(e){fail(e);}
+};
 
 /* ---------- Start ---------- */
 $('l-month').value=today().slice(0,7);
+setMode('login');
 resetForm();
-if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();
+if(!configured){
+  $('a-cfg').style.display='block';showAuth();
+}else{
+  const app=initializeApp(firebaseConfig);
+  fa=getAuth(app);
+  fs=initializeFirestore(app,{localCache:persistentLocalCache({tabManager:persistentMultipleTabManager()})});
+  setPersistence(fa,browserLocalPersistence);
+  onAuthStateChanged(fa,u=>{
+    stopSync();user=u;
+    if(u){
+      $('who').textContent=u.displayName||u.email;
+      showApp();show('v-add');resetForm();startSync();
+    }else{
+      $('a-pw').value='';$('a-pw2').value='';showAuth();
+    }
+  });
+}
 </script>
 </body>
 </html>
