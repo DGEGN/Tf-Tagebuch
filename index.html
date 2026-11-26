@@ -6,6 +6,11 @@
 <meta name="theme-color" content="#14161a">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Tf-Tagebuch">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <title>Tf-Tagebuch</title>
 <style>
 :root{
@@ -106,6 +111,10 @@ header{display:flex;justify-content:space-between;align-items:center}
 <main>
 <!-- ERFASSEN -->
 <section class="view on" id="v-add">
+  <div class="editbar on" id="inst-banner" style="display:none;background:#1d2533;border-color:#33415a;color:#cfe0ff">
+    <span onclick="goInstall()">📲 Als App installieren</span>
+    <span><button class="btn small" onclick="goInstall()">Wie?</button> <button class="btn small sec" onclick="hideInstBanner()">✕</button></span>
+  </div>
   <div class="editbar" id="editbar"><span>✏️ Eintrag wird bearbeitet</span><button class="btn small sec" onclick="resetForm()">Abbrechen</button></div>
 
   <div class="card">
@@ -204,6 +213,19 @@ header{display:flex;justify-content:space-between;align-items:center}
     <button class="btn sec" onclick="addBR()">Baureihe hinzufügen</button>
     <div class="hint" id="d-brlist"></div>
   </div>
+  <div class="card" id="d-install" style="display:none">
+    <h2>📲 Als App installieren</h2>
+    <div id="d-install-android">
+      <p class="hint" style="margin-top:0">Leg das Tf-Tagebuch als App auf deinen Startbildschirm – startet dann ohne Browserleiste und auch offline.</p>
+      <button class="btn" id="installBtn">App installieren</button>
+    </div>
+    <div id="d-install-ios" class="hint" style="display:none;margin-top:0">
+      Auf dem iPhone in <b>Safari</b>: unten auf <b>Teilen</b> <span style="font-size:16px">⎋</span> tippen → <b>„Zum Home-Bildschirm“</b> → <b>Hinzufügen</b>.
+    </div>
+    <div id="d-install-other" class="hint" style="display:none;margin-top:0">
+      Im Browser-Menü (⋮) auf <b>„App installieren“</b> bzw. <b>„Zum Startbildschirm hinzufügen“</b> tippen.
+    </div>
+  </div>
   <div class="card" id="d-migrate" style="display:none">
     <h2>Alte Daten übernehmen</h2>
     <p class="hint" style="margin-top:0">Auf diesem Gerät liegen noch Einträge aus der Version ohne Anmeldung.</p>
@@ -238,12 +260,12 @@ header{display:flex;justify-content:space-between;align-items:center}
    „Meine Apps“ → Web-App → SDK-Konfiguration
    ========================================================= */
 const firebaseConfig = {
-  apiKey: "AIzaSyBkXVnIHlJVKbDhkZFTTihh5ZH7pcUjiJ4",
-  authDomain: "tf-tagebuch.firebaseapp.com",
-  projectId: "tf-tagebuch",
-  storageBucket: "tf-tagebuch.firebasestorage.app",
-  messagingSenderId: "96322270067",
-  appId: "1:96322270067:web:5094a668d3ef63ff67cb06"
+  apiKey: "DEIN_API_KEY",
+  authDomain: "DEIN_PROJEKT.firebaseapp.com",
+  projectId: "DEIN_PROJEKT",
+  storageBucket: "DEIN_PROJEKT.appspot.com",
+  messagingSenderId: "000000000000",
+  appId: "1:000000000000:web:xxxxxxxxxxxxxxxx"
 };
 /* ========================================================= */
 
@@ -559,6 +581,7 @@ function renderData(){
   $('d-brlist').querySelectorAll('a[data-br]').forEach(a=>a.onclick=()=>delBR(a.dataset.br));
   $('d-info').innerHTML=`Angemeldet als <b>${esc(user?.email)}</b><br>${db.entries.length} Einträge in der Cloud.`;
   $('d-migrate').style.display=localOld()?'block':'none';
+  updateInstall();
 }
 window.migrateLocal=async function(){
   const d=localOld();if(!d)return;
@@ -579,6 +602,33 @@ window.wipe=async function(){
     toast('Alles gelöscht');
   }catch(e){fail(e);}
 };
+
+/* ---------- Installation als App ---------- */
+let installEvt=null;
+const isStandalone=()=>window.matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();installEvt=e;updateInstall();});
+window.addEventListener('appinstalled',()=>{installEvt=null;updateInstall();toast('App installiert ✓');});
+function updateInstall(){
+  const card=$('d-install');if(!card)return;
+  if(isStandalone()){card.style.display='none';$('inst-banner').style.display='none';return;}
+  card.style.display='block';
+  $('d-install-android').style.display=installEvt?'block':'none';
+  $('d-install-ios').style.display=!installEvt&&isIOS?'block':'none';
+  $('d-install-other').style.display=!installEvt&&!isIOS?'block':'none';
+  let dismissed=false;try{dismissed=localStorage.getItem('tf-inst-hide')==='1';}catch(e){}
+  $('inst-banner').style.display=dismissed?'none':'flex';
+}
+$('installBtn').onclick=async()=>{
+  if(!installEvt)return;installEvt.prompt();
+  await installEvt.userChoice;installEvt=null;updateInstall();
+};
+window.hideInstBanner=()=>{try{localStorage.setItem('tf-inst-hide','1');}catch(e){}$('inst-banner').style.display='none';};
+window.goInstall=()=>{ if(installEvt) $('installBtn').click(); else show('v-data'); };
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(e=>console.warn('SW',e)));
+}
+updateInstall();
 
 /* ---------- Start ---------- */
 $('l-month').value=today().slice(0,7);
